@@ -9,7 +9,7 @@ function todayString() { return new Date().toDateString() }
 /** The Book of Words — narrative spine of the game. Found in starting room, cannot be dropped. */
 export const BOOK_OF_WORDS_ITEM = {
   id: BOOK_OF_WORDS_ID,
-  name: 'book of words',
+  name: 'Book of Words',
   description: 'A worn leather tome, its cover etched with shifting symbols. Something about it feels important.',
   takeable: true,
   wearable: false,
@@ -21,7 +21,7 @@ export const BOOK_OF_WORDS_ITEM = {
 /** The Gem Stone — represents active Elelem energy (API connection). Cannot be dropped. */
 export const GEM_STONE_ITEM = {
   id: GEM_STONE_ID,
-  name: 'gem stone',
+  name: 'Gem Stone',
   description: 'A small, faceted stone that pulses with soft inner light. You sense it is connected to the Elelem.',
   takeable: false,
   wearable: false,
