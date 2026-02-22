@@ -1,0 +1,124 @@
+.screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  width: 100%;
+  padding: 2rem;
+  overflow-y: auto;
+}
+
+.box {
+  width: 100%;
+  max-width: 580px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* In-world: Librarian's voice — white */
+.narrative {
+  color: var(--text-white);
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.25rem 0;
+}
+
+.ascii {
+  color: var(--text-green);
+  font-family: var(--font);
+  font-size: var(--font-size);
+  line-height: 1.3;
+  white-space: pre;
+  overflow-x: auto;
+  margin: 0;
+}
+
+/* Out-of-world: API instructions — green */
+.instructions {
+  color: var(--text-green);
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+
+.instructions a {
+  color: var(--text-green);
+  text-decoration: underline;
+  opacity: 0.85;
+}
+
+.instructions a:hover {
+  opacity: 1;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.inputRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.prompt {
+  color: var(--text-green);
+  font-size: var(--font-size);
+  flex-shrink: 0;
+}
+
+.keyInput {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-yellow);
+  font-family: var(--font);
+  font-size: var(--font-size);
+  padding: 0.25rem 0.25rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.keyInput:focus {
+  border-bottom-color: var(--text-green);
+}
+
+.keyInput::placeholder {
+  color: var(--text-dim);
+  opacity: 0.5;
+}
+
+.submitBtn {
+  background: none;
+  border: 1px solid var(--text-green);
+  color: var(--text-green);
+  font-family: var(--font);
+  font-size: var(--font-size);
+  padding: 0.25rem 1rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.submitBtn:hover:not(:disabled) {
+  background: var(--text-green);
+  color: var(--bg);
+}
+
+.submitBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.error {
+  color: var(--text-green);
+  font-size: 0.85rem;
+  opacity: 0.75;
+}

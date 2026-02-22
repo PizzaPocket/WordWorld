@@ -1,0 +1,142 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 3rem 1.5rem 1.5rem;
+  z-index: 100;
+}
+
+.panel {
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  width: 100%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.title {
+  color: var(--text-green);
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 1rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 0.25rem;
+}
+
+.closeBtn:hover {
+  color: var(--text);
+}
+
+.empty {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  padding: 1rem;
+  font-style: italic;
+}
+
+.saveItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--border);
+  gap: 0.5rem;
+}
+
+.saveItem:last-child {
+  border-bottom: none;
+}
+
+.saveMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.saveName {
+  color: var(--text);
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saveDate {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.loadBtn {
+  background: none;
+  border: 1px solid var(--text-green);
+  color: var(--text-green);
+  font-family: var(--font);
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.loadBtn:hover {
+  background: var(--text-green);
+  color: var(--bg);
+}
+
+.deleteBtn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.deleteBtn:hover {
+  border-color: var(--text-red);
+  color: var(--text-red);
+}
+
+.footer {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.hint {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
