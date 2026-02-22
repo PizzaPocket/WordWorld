@@ -186,9 +186,10 @@ export function useGameEngine() {
 
       let { name, description, narrative, items, npcs, exits, blockedExits, hasMirror } = result.data
 
-      // Ensure the Book of Words is always present in the start room
-      if (isStartRoom && !items.some(i => i.id === BOOK_OF_WORDS_ID)) {
-        items = [{ ...BOOK_OF_WORDS_ITEM }, ...items]
+      // Ensure the Book of Words is always present in the start room using the
+      // canonical constant — replace any LLM-generated version (which gets lowercased)
+      if (isStartRoom) {
+        items = [{ ...BOOK_OF_WORDS_ITEM }, ...items.filter(i => i.id !== BOOK_OF_WORDS_ID)]
       }
 
       // forceMirror: guarantee the flag is set even if the LLM ignores the instruction
