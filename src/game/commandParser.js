@@ -138,6 +138,7 @@ export function parseCommand(input) {
     if (rest) return { type: 'examine', targetName: rest }
   }
   if (first === 'read') {
+    if (rest === 'more' || rest === 'next') return { type: 'read_more' }
     return { type: 'examine', targetName: restOriginal || 'book of words' }
   }
   if (lower.startsWith('look at ')) {

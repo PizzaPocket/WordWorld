@@ -216,11 +216,12 @@ export function parseStartRoomResponse(rawText) {
       const roomResult = parseRoomResponse(JSON.stringify(data.room))
       if (!roomResult.ok) return roomResult
       const chapter1Title = isString(data.chapter1Title) ? data.chapter1Title.trim() : null
-      return { ok: true, data: { ...roomResult.data, chapter1Title } }
+      const chapter1Story = isString(data.chapter1Story) ? data.chapter1Story.trim() : null
+      return { ok: true, data: { ...roomResult.data, chapter1Title, chapter1Story } }
     }
     const roomResult = parseRoomResponse(rawText)
     if (!roomResult.ok) return roomResult
-    return { ok: true, data: { ...roomResult.data, chapter1Title: null } }
+    return { ok: true, data: { ...roomResult.data, chapter1Title: null, chapter1Story: null } }
   } catch (err) {
     return { ok: false, error: String(err), rawText }
   }
@@ -254,8 +255,9 @@ export function parseEncounterJudgmentResponse(rawText) {
     const success = data.success === true
     const resolution = isString(data.resolution) ? data.resolution.trim() : 'The encounter fades.'
     const chapterTitle = success && isString(data.chapterTitle) ? data.chapterTitle.trim() : null
+    const chapterStory = success && isString(data.chapterStory) ? data.chapterStory.trim() : null
     const failureReason = !success && isString(data.failureReason) ? data.failureReason.trim() : null
-    return { ok: true, data: { success, resolution, chapterTitle, failureReason } }
+    return { ok: true, data: { success, resolution, chapterTitle, chapterStory, failureReason } }
   } catch (err) {
     return { ok: false, error: String(err), rawText }
   }
@@ -290,6 +292,22 @@ export function parseNoticeResponse(rawText, playerPos) {
     const narrative = isString(data.narrative) ? data.narrative.trim() : 'Your attention sharpens, but nothing resolves.'
     const actions = sanitizeActions(data.actions, playerPos)
     return { ok: true, data: { narrative, actions } }
+  } catch (err) {
+    return { ok: false, error: String(err), rawText }
+  }
+}
+
+/**
+ * Parse the LLM response for the appearance interpretation mechanic.
+ * @param {string} rawText
+ * @returns {{ ok: true, data: { appearance: string } } | { ok: false, error: string, rawText: string }}
+ */
+export function parseAppearanceResponse(rawText) {
+  try {
+    const data = JSON.parse(stripFences(rawText))
+    const appearance = isString(data.appearance) ? data.appearance.trim() : null
+    if (!appearance) return { ok: false, error: 'Missing appearance field', rawText }
+    return { ok: true, data: { appearance } }
   } catch (err) {
     return { ok: false, error: String(err), rawText }
   }

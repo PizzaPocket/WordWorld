@@ -5,9 +5,9 @@
 
 export const SYSTEM_PROMPT = `You are the game engine for a text-based adventure game called Word World.
 The world is a 7x7 grid of cells (columns A-G, rows 1-7). The player starts at D4 (center).
-The world is imbued with life by the Elelem, an omnipresent life force. Be creative, surreal, and unpredictable. There is no fixed theme — rooms may be mundane, alien, fantastic, playful, absurd, dreamlike, or anything in between.
+The world is imbued with life by the Elelem, an omnipresent life force. Be creative, surreal, and unpredictable. There is no fixed theme — rooms may end up being themed atmospheres such as mundane, alien, fantastic, playful, absurd, dreamlike, or anything in between.
 Maintain loose internal consistency within a single session, but don't be afraid to be strange.
-Content should be written in Intermediate Reader or YA reading level.
+Content should be written in Intermediate Reader or YA reading level, not too verbose or flowery vocabulary.
 
 CRITICAL RULES:
 - Always respond with valid JSON matching the exact schema requested. No extra keys, no missing keys.
@@ -19,13 +19,59 @@ CRITICAL RULES:
 - The PLAYER_DEATH action resets the player to D4. Use it when the player experiences a clear fatal outcome. Always include a dramatic narrative before triggering it.`
 
 /**
+ * Returns a compact string of written Book of Words chapters (title + story).
+ * Included in encounter and dialogue prompts to give the LLM narrative continuity.
+ * @param {{ chapter1Title: string|null, chapter1Story: string|null, chapters: { number: number, title: string|null, story: string|null, completed: boolean }[] }} bookOfWords
+ * @returns {string}
+ */
+export function buildBookContext(bookOfWords) {
+  const lines = []
+  if (bookOfWords.chapter1Title) {
+    lines.push(`Chapter One: "${bookOfWords.chapter1Title}"`)
+    if (bookOfWords.chapter1Story) lines.push(`  ${bookOfWords.chapter1Story}`)
+  }
+  for (const ch of bookOfWords.chapters) {
+    if (ch.title) {
+      lines.push(`Chapter ${ch.number}: "${ch.title}"`)
+      if (ch.story) lines.push(`  ${ch.story}`)
+    }
+  }
+  return lines.length ? lines.join('\n') : '(no chapters written yet)'
+}
+
+/**
  * @param {import('../game/models.js').Coord} coord
  * @param {string} neighborContext
  * @param {{ npcName: string|null, resolution: string|null }|null} [encounterContext]
  * @param {boolean} [forceMirror]
  * @returns {string}
  */
-export function buildRoomPrompt(coord, neighborContext, encounterContext = null, forceMirror = false) {
+/**
+ * Builds a compact player context string for room generation.
+ * Omits universal items (gem stone, book of words) that every player carries.
+ * Returns empty string if there is nothing distinctive to say.
+ * @param {import('../game/models.js').Player} player
+ * @returns {string}
+ */
+function buildPlayerContext(player) {
+  const lines = []
+  if (player.appearance) lines.push(`Appearance: ${player.appearance}`)
+
+  const worn = player.wearing.map(i => i.name)
+  if (worn.length) lines.push(`Wearing: ${worn.join(', ')}`)
+
+  if (player.holding) lines.push(`Holding: ${player.holding.name}`)
+
+  const carried = player.inventory
+    .filter(i => i.id !== 'gem_stone' && i.id !== 'book_of_words')
+    .map(i => i.name)
+  if (carried.length) lines.push(`Carrying: ${carried.join(', ')}`)
+
+  if (!lines.length) return ''
+  return `TRAVELLER (this person is entering the room — let their nature subtly echo in what you place here, but do not overdo it):\n${lines.join('\n')}`
+}
+
+export function buildRoomPrompt(coord, neighborContext, encounterContext = null, forceMirror = false, player = null) {
   const { x, y } = coord
   const blocked = []
   if (y === 0) blocked.push('"north"')
@@ -36,11 +82,13 @@ export function buildRoomPrompt(coord, neighborContext, encounterContext = null,
   const col = String.fromCharCode(65 + x)
   const row = y + 1
 
+  const playerSection = player ? buildPlayerContext(player) : ''
+
   return `Generate content for grid cell ${col}${row} (x=${x}, y=${y}).
 
 NEIGHBORING CELLS (for loose thematic continuity — you don't have to match them):
 ${neighborContext}
-
+${playerSection ? `\n${playerSection}\n` : ''}
 Respond with JSON matching this exact schema:
 {
   "name": "string (short room name, 2-5 words)",
@@ -70,8 +118,8 @@ Respond with JSON matching this exact schema:
 }
 
 CONSTRAINTS:
-- exits array: only include directions the player can walk through freely.${blocked.length ? `\n  Do NOT include: ${blocked.join(', ')}.` : ''}
-- blockedExits: list directions that have a visible physical obstruction (locked door, rubble, sealed arch, etc.) that COULD potentially be cleared by player action. The description or narrative MUST mention every entry in blockedExits. Do NOT add a blockedExit for a direction that simply has no opening — only add it when a specific feature is blocking an otherwise plausible passage.
+- exits array: only include directions the player can walk through freely.${blocked.length ? `\n  Do NOT include: ${blocked.join(', ')} — this room is at the world boundary in that direction.` : '\n  All four directions (north, south, east, west) are within the world boundary for this room — any of them may be exits.'}
+- blockedExits: in about 1 in 3 rooms, list a direction with a visible physical obstruction (locked door, rubble, sealed arch, etc.) that COULD potentially be cleared by player action. Most rooms should have an empty blockedExits array. The description or narrative MUST mention every entry in blockedExits. Do NOT add a blockedExit for a direction that simply has no opening — only add it when a specific feature is blocking an otherwise plausible passage.
 - Directions absent from both exits and blockedExits are assumed to have no opening at all (solid wall, room corner, etc.) and need not be mentioned.
 - items: 0-4 items. Most rooms have 0-2 items. Empty rooms are fine and often more atmospheric.
 - npcs: 0-2 NPCs. About 1 in 4 rooms should have an NPC. When one is present, describe them as curious or clearly open to conversation — the player should feel invited to approach them.
@@ -173,7 +221,8 @@ The title should be 4–8 words, evocative, and subtly reflect the starting room
 Wrap your entire response in this JSON shape instead of the plain room shape:
 {
   "room": { ...the standard room JSON object... },
-  "chapter1Title": "string (4–8 word chapter title)"
+  "chapter1Title": "string (4–8 word chapter title)",
+  "chapter1Story": "string (2–3 sentence storybook prose, third person past tense — e.g. 'The Traveller arrived at...', 'They discovered...' — warm, slightly mythic in tone; use 'the Traveller' for the protagonist until their name is known)"
 }`
 }
 
@@ -182,13 +231,15 @@ Wrap your entire response in this JSON shape instead of the plain room shape:
  * @param {import('../game/models.js').Coord} coord
  * @param {string} storyTheme
  * @param {import('../game/models.js').Player} player
+ * @param {Object|null} [bookOfWords]
  * @returns {string}
  */
-export function buildEncounterPrompt(coord, storyTheme, player) {
+export function buildEncounterPrompt(coord, storyTheme, player, bookOfWords = null) {
   const { x, y } = coord
   const col = String.fromCharCode(65 + x)
   const row = y + 1
   const inventory = player.inventory.map(i => i.name).join(', ') || 'nothing'
+  const bookCtx = bookOfWords ? buildBookContext(bookOfWords) : null
 
   return `Generate a special encounter at grid location ${col}${row} in Word World.
 
@@ -198,7 +249,7 @@ PLAYER:
   Name: ${player.name || 'unknown'}
   Appearance: ${player.appearance || 'unknown'}
   Inventory: ${inventory}
-
+${bookCtx ? `\nBOOK OF WORDS (chapters written so far — let this inform the encounter's tone and continuity):\n${bookCtx}\n` : ''}
 This is a pivotal moment aligned with the theme above. The player meets an NPC who presents a situation or challenge that resonates with that theme. The encounter should:
 - Be vivid and atmospheric, fitting the Word World aesthetic
 - Feature a named NPC with a distinct voice and presence
@@ -221,9 +272,11 @@ Respond with JSON:
  * @param {{ narrative: string, npcName: string, situationSummary: string }} encounterContext
  * @param {string} storyTheme
  * @param {number} chapterNumber
+ * @param {Object|null} [bookOfWords]
  * @returns {string}
  */
-export function buildEncounterJudgmentPrompt(playerResponse, encounterContext, storyTheme, chapterNumber) {
+export function buildEncounterJudgmentPrompt(playerResponse, encounterContext, storyTheme, chapterNumber, bookOfWords = null) {
+  const bookCtx = bookOfWords ? buildBookContext(bookOfWords) : null
   return `You are judging the outcome of a special encounter in Word World.
 
 ENCOUNTER:
@@ -232,20 +285,21 @@ ${encounterContext.narrative}
 SITUATION: ${encounterContext.situationSummary}
 STORY THEME: "${storyTheme}"
 NPC: ${encounterContext.npcName}
-
+${bookCtx ? `\nBOOK OF WORDS (story so far):\n${bookCtx}\n` : ''}
 PLAYER'S RESPONSE: "${playerResponse}"
 
 Determine whether the player's response reflects the spirit of the Elelem and is meaningful for the theme "${storyTheme}".
 A response succeeds if it shows genuine engagement, creativity, honesty, or wisdom — not necessarily the "right" answer.
 A response fails if it is dismissive, nonsensical in context, or works against the spirit of the theme.
 
-If successful, also provide a chapter title for Chapter ${chapterNumber} of the Book of Words (4–8 words, evocative, reflecting what transpired).
+If successful, also provide a chapter title for Chapter ${chapterNumber} of the Book of Words (4–8 words, evocative, reflecting what transpired), and a chapter story (2–3 sentences of storybook prose expanding on what happened — warm, slightly mythic, written as if narrating a fairy tale from a narrator's distance).
 
 Respond with JSON:
 {
   "success": true or false,
   "resolution": "string (narrative resolution of the encounter, 2–4 sentences, second person, present tense — works for both pass and fail)",
   "chapterTitle": "string (only if success — 4–8 word chapter title for Book of Words)",
+  "chapterStory": "string (only if success — 2–3 sentence storybook prose for Book of Words, third person past tense — e.g. 'The Traveller faced...', 'They chose...' — warm, slightly mythic in tone; use 'the Traveller' for the protagonist until their name is known)",
   "failureReason": "string (only if failure — one sentence, in-world reason the Elelem did not accept the response)"
 }`
 }
@@ -340,12 +394,17 @@ export function buildDialoguePrompt(npc, playerInput, gameState, currentCell) {
     ? recentHistory.join('\n')
     : '(no prior conversation)'
 
+  const isChild = npc.id === 'child_wanderer'
+  const bookSection = isChild && gameState.bookOfWords
+    ? `\nBOOK OF WORDS (the completed story — the child has come to hear this read aloud):\n${buildBookContext(gameState.bookOfWords)}\n`
+    : ''
+
   return `You are playing the role of "${npc.name}" in a text-based adventure game.
 
 NPC DESCRIPTION: ${npc.description}
 CURRENT ROOM: ${currentCell.name || 'Unnamed'} — ${currentCell.description || ''}
 PLAYER NAME: ${player.name || 'a stranger'}
-PLAYER APPEARANCE: ${player.appearance || 'unknown'}
+PLAYER APPEARANCE: ${player.appearance || 'unknown'}${bookSection}
 
 CONVERSATION SO FAR:
 ${historyText}
@@ -389,9 +448,33 @@ Respond with JSON:
 }
 
 RULES:
-- Make the examination atmospheric and specific. Reveal texture, smell, weight, inscriptions, damage, or history.
+- Make the examination atmospheric and specific. Reveal aspects such as texture, weight, inscriptions, damage, history, or even other sense descriptions.
 - For items: hint at potential uses, hidden compartments, or strangeness.
 - For NPCs: describe their reaction to being observed, their posture, eyes, clothing details.
 - Available actions (use only if examination has consequences): SPAWN_NPC, ADD_ITEM_TO_ROOM, REMOVE_ITEM_FROM_ROOM
 - Do not simply repeat the brief description. Add new information.`
+}
+
+/**
+ * Builds the prompt for interpreting and polishing a player's appearance description.
+ * Used both for first-time setup and for corrections/updates.
+ * @param {string} rawDescription - What the player typed
+ * @param {string|null} existingAppearance - Current stored appearance (null if first time)
+ * @returns {string}
+ */
+export function buildAppearancePrompt(rawDescription, existingAppearance = null) {
+  const context = existingAppearance
+    ? `CURRENT APPEARANCE: "${existingAppearance}"\n\nThe player is describing a change or correction.`
+    : `This is the player's first time describing their appearance.`
+
+  return `The player is looking at their reflection in a mirror in Word World.
+${context}
+PLAYER'S INPUT: "${rawDescription}"
+
+Write a polished appearance description for this character — 1-2 sentences, second person, present tense ("You have...", "You wear...", "You appear..."). Capture distinctive features, clothing, and mood. Stay faithful to what the player described. If updating an existing appearance, blend the change with any unchanged details.
+
+Respond with JSON:
+{
+  "appearance": "string (1-2 sentence appearance description, second person, present tense)"
+}`
 }

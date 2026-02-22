@@ -122,6 +122,27 @@ export function formatBookOfWords(bookOfWords) {
   lines.push('')
   lines.push(`${completed} of ${total} chapters written.`)
 
+  const hasStories = bookOfWords.chapter1Story || bookOfWords.chapters.some(c => c.story)
+  if (hasStories) {
+    lines.push(`Type "read more" to read the story chapter by chapter.`)
+  }
+
+  return lines.join('\n')
+}
+
+const CHAPTER_NAMES = ['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight']
+
+/**
+ * @param {number} number  1–8
+ * @param {string|null} title
+ * @param {string|null} story
+ * @returns {string}
+ */
+export function formatChapterReading(number, title, story) {
+  const name = CHAPTER_NAMES[number - 1] || String(number)
+  const lines = [`CHAPTER ${name.toUpperCase()}`, '']
+  if (title) { lines.push(`"${title}"`, '') }
+  lines.push(story || '[ not yet written ]')
   return lines.join('\n')
 }
 

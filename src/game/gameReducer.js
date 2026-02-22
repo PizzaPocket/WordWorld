@@ -201,6 +201,9 @@ export function gameReducer(state, action) {
     case A.SET_AWAITING_APPEARANCE:
       return { ...state, awaitingAppearance: action.value }
 
+    case A.SET_AWAITING_MIRROR_CONFIRMATION:
+      return { ...state, awaitingMirrorConfirmation: action.value }
+
     case A.SET_AWAITING_NAME:
       return { ...state, awaitingName: action.value, pendingNpcId: action.npcId ?? null }
 
@@ -416,16 +419,16 @@ export function gameReducer(state, action) {
     }
 
     case A.SET_CHAPTER_TITLE: {
-      const { chapter, title } = action
+      const { chapter, title, story } = action
       if (chapter === 1) {
-        return { ...state, bookOfWords: { ...state.bookOfWords, chapter1Title: title } }
+        return { ...state, bookOfWords: { ...state.bookOfWords, chapter1Title: title, chapter1Story: story ?? null } }
       }
       return {
         ...state,
         bookOfWords: {
           ...state.bookOfWords,
           chapters: state.bookOfWords.chapters.map(c =>
-            c.number === chapter ? { ...c, title } : c
+            c.number === chapter ? { ...c, title, story: story ?? null } : c
           ),
         },
       }
@@ -435,9 +438,9 @@ export function gameReducer(state, action) {
       return { ...state, activeEncounter: action.encounter }
 
     case A.COMPLETE_ENCOUNTER: {
-      const { chapter, title, resolution, npcName } = action
+      const { chapter, title, story, resolution, npcName } = action
       const updatedChapters = state.bookOfWords.chapters.map(c =>
-        c.number === chapter ? { ...c, title, completed: true } : c
+        c.number === chapter ? { ...c, title, story: story ?? null, completed: true } : c
       )
       const updatedLocations = state.encounterLocations.map(e =>
         e.chapter === chapter ? { ...e, completed: true, resolution, npcName } : e
@@ -465,6 +468,7 @@ export function gameReducer(state, action) {
         llmError: null,
         lastError: null,
         awaitingAppearance: false,
+        awaitingMirrorConfirmation: false,
         awaitingName: false,
         pendingNpcId: null,
         lastFailedPrompt: null,

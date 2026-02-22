@@ -101,6 +101,7 @@ export function createGameState() {
     gemStoneActive: true,
     lastError: null,
     awaitingAppearance: false,
+    awaitingMirrorConfirmation: false,
     awaitingName: false,
     pendingNpcId: null,
     lastFailedPrompt: null,
@@ -108,10 +109,12 @@ export function createGameState() {
     lastPlayedDate: todayString(),
     bookOfWords: {
       chapter1Title: null,
+      chapter1Story: null,
       chapters: STORY_CIRCLE.slice(1).map(sc => ({
         number: sc.chapter,
         column: sc.chapter - 2, // col A=0 → ch2, col G=6 → ch8
         title: null,
+        story: null,
         completed: false,
       })),
     },

@@ -5,7 +5,7 @@ import * as A from '../game/gameActions.js'
 import { parseCommand } from '../game/commandParser.js'
 import { getCellKey, getAdjacentCoord, getNeighborContext, findEncounterAt } from '../game/worldUtils.js'
 import { coordToLabel, START_POSITION, BOOK_OF_WORDS_ID, STORY_CIRCLE } from '../game/constants.js'
-import { describeRoom, formatInventory, formatHelp, formatPlayerStatus, formatBookOfWords } from '../game/textFormatters.js'
+import { describeRoom, formatInventory, formatHelp, formatPlayerStatus, formatBookOfWords, formatChapterReading } from '../game/textFormatters.js'
 import { BOOK_OF_WORDS_ITEM } from '../game/initialState.js'
 import { generate } from '../llm/geminiClient.js'
 import {
@@ -18,6 +18,7 @@ import {
   buildDialoguePrompt,
   buildExaminePrompt,
   buildNoticePrompt,
+  buildAppearancePrompt,
 } from '../llm/prompts.js'
 import {
   parseRoomResponse,
@@ -29,6 +30,7 @@ import {
   parseDialogueResponse,
   parseExamineResponse,
   parseNoticeResponse,
+  parseAppearanceResponse,
 } from '../llm/responseParser.js'
 import {
   saveGame,
@@ -56,6 +58,8 @@ export function useGameEngine() {
   const previousPositionRef = useRef(null)
   // Callbacks to fire when a specific message finishes animating: id → fn
   const messageCallbacksRef = useRef(new Map())
+  // Reading cursor for "read more" — tracks which written chapter to show next
+  const bookReadingCursorRef = useRef(0)
 
   // Clean up reactivation timer on unmount
   useEffect(() => {
@@ -167,7 +171,7 @@ export function useGameEngine() {
     const forceMirror = !isStartRoom && !state.firstRoomGenerated
     const userPrompt = (isStartRoom && isFirstVisit)
       ? buildStartRoomPrompt(coord, neighborCtx)
-      : buildRoomPrompt(coord, neighborCtx, encounterContext, forceMirror)
+      : buildRoomPrompt(coord, neighborCtx, encounterContext, forceMirror, state.player)
 
     dispatch({ type: A.SET_LAST_FAILED_PROMPT, prompt: { type: 'room', coord } })
     setLoading(true)
@@ -210,22 +214,18 @@ export function useGameEngine() {
       dispatch({ type: A.SET_LAST_FAILED_PROMPT, prompt: null })
       reactivateGemStone()
 
-      // Store chapter 1 title (only shown when player reads the book)
+      // Store chapter 1 title + story (only shown when player reads the book)
       if (isStartRoom && isFirstVisit && result.data.chapter1Title) {
-        dispatch({ type: A.SET_CHAPTER_TITLE, chapter: 1, title: result.data.chapter1Title })
+        dispatch({ type: A.SET_CHAPTER_TITLE, chapter: 1, title: result.data.chapter1Title, story: result.data.chapter1Story ?? null })
       }
 
       if (showArrival) msg(narrative, 'narrative')
       if (showArrival) msg('', 'narrative')
-      msg(describeRoom(cell, coord), 'narrative')
-
-      if (hasMirror) {
-        setTimeout(() => {
-          msg('There is a mirror here. You catch a glimpse of your reflection.', 'system')
-          msg('Describe what you see when you look at yourself.', 'system')
-          dispatch({ type: A.SET_AWAITING_APPEARANCE, value: true })
-        }, 600)
-      }
+      msg(describeRoom(cell, coord), 'narrative', hasMirror ? () => {
+        msg('There is a mirror here. You catch a glimpse of your reflection.', 'system')
+        msg('Describe what you see when you look at yourself.', 'system')
+        dispatch({ type: A.SET_AWAITING_APPEARANCE, value: true })
+      } : null)
 
       setLoading(false)
     } catch (err) {
@@ -253,7 +253,7 @@ export function useGameEngine() {
     setLoading(true)
 
     try {
-      const userPrompt = buildEncounterPrompt(coord, storyTheme, state.player)
+      const userPrompt = buildEncounterPrompt(coord, storyTheme, state.player, state.bookOfWords)
       const rawText = await generate(userPrompt)
       const result = parseEncounterResponse(rawText)
 
@@ -296,14 +296,14 @@ export function useGameEngine() {
 
     try {
       const userPrompt = buildEncounterJudgmentPrompt(
-        playerInput, encounter.context, encounter.storyTheme, encounter.chapter
+        playerInput, encounter.context, encounter.storyTheme, encounter.chapter, state.bookOfWords
       )
       const rawText = await generate(userPrompt)
       const result = parseEncounterJudgmentResponse(rawText)
 
       if (!result.ok) throw new Error(result.error)
 
-      const { success, resolution, chapterTitle } = result.data
+      const { success, resolution, chapterTitle, chapterStory } = result.data
 
       reactivateGemStone()
       dispatch({ type: A.SET_ACTIVE_ENCOUNTER, encounter: null })
@@ -314,6 +314,7 @@ export function useGameEngine() {
           type: A.COMPLETE_ENCOUNTER,
           chapter: encounter.chapter,
           title: chapterTitle,
+          story: chapterStory,
           resolution,
           npcName: encounter.context.npcName,
         })
@@ -523,14 +524,11 @@ export function useGameEngine() {
       })
 
       reactivateGemStone()
-      msg(`${npc.name}: "${dialogue}"`, 'llm')
-
-      if (askingForName && !state.player.name) {
-        setTimeout(() => {
-          msg('(What do you tell them your name is?)', 'system')
-          dispatch({ type: A.SET_AWAITING_NAME, value: true, npcId: npc.id })
-        }, 400)
-      }
+      const needsName = askingForName && !state.player.name
+      msg(`${npc.name}: "${dialogue}"`, 'llm', needsName ? () => {
+        msg('(What do you tell them your name is?)', 'system')
+        dispatch({ type: A.SET_AWAITING_NAME, value: true, npcId: npc.id })
+      } : null)
 
       if (actions.length) {
         dispatch({ type: A.APPLY_LLM_ACTIONS, actions })
@@ -582,6 +580,40 @@ export function useGameEngine() {
         handleRateLimit()
       } else {
         msg('You look closely but your thoughts scatter. The Elelem does not illuminate it.', 'narrative')
+      }
+    }
+  }
+
+  async function runAppearanceLlm(rawDescription) {
+    if (isGemStoneDepleted()) {
+      dispatch({ type: A.SET_AWAITING_APPEARANCE, value: false })
+      return
+    }
+
+    const state = stateRef.current
+    setLoading(true)
+
+    try {
+      const userPrompt = buildAppearancePrompt(rawDescription, state.player.appearance)
+      const rawText = await generate(userPrompt)
+      const result = parseAppearanceResponse(rawText)
+
+      if (!result.ok) throw new Error(result.error)
+
+      const { appearance } = result.data
+      reactivateGemStone()
+      dispatch({ type: A.SET_PLAYER_APPEARANCE, appearance })
+      msg(`You study your reflection. ${appearance}`, 'narrative')
+      setLoading(false)
+    } catch (err) {
+      setLoading(false, String(err))
+      dispatch({ type: A.SET_LAST_ERROR, error: String(err) })
+      if (String(err).includes('429')) {
+        handleRateLimit()
+      } else {
+        // Fallback: store raw input so the player isn't stuck
+        dispatch({ type: A.SET_PLAYER_APPEARANCE, appearance: rawDescription })
+        msg(`You study your reflection. ${rawDescription}`, 'narrative')
       }
     }
   }
@@ -786,6 +818,7 @@ export function useGameEngine() {
       const bookItem = state.player.inventory.find(i => i.id === BOOK_OF_WORDS_ID)
         || currentCell()?.items.find(i => i.id === BOOK_OF_WORDS_ID)
       if (bookItem) {
+        bookReadingCursorRef.current = 0
         msg(formatBookOfWords(state.bookOfWords), 'system')
         return
       }
@@ -805,7 +838,10 @@ export function useGameEngine() {
       if (cell.hasMirror) {
         const state = stateRef.current
         if (state.player.appearance) {
-          msg(`You look at your reflection. ${state.player.appearance}`, 'narrative')
+          msg(`You look into the mirror.\n\n${state.player.appearance}`, 'narrative', () => {
+            msg('Does this still reflect how you see yourself? Type "yes" to confirm, or describe what has changed.', 'system')
+            dispatch({ type: A.SET_AWAITING_MIRROR_CONFIRMATION, value: true })
+          })
         } else {
           msg('You look into the mirror. Describe what you see.', 'system')
           dispatch({ type: A.SET_AWAITING_APPEARANCE, value: true })
@@ -815,6 +851,40 @@ export function useGameEngine() {
     }
 
     runCommandLlm(`examine ${targetName}`)
+  }
+
+  function handleReadMore() {
+    const state = stateRef.current
+    const { bookOfWords } = state
+
+    const allChapters = [
+      { number: 1, title: bookOfWords.chapter1Title, story: bookOfWords.chapter1Story },
+      ...bookOfWords.chapters.map(c => ({ number: c.number, title: c.title, story: c.story })),
+    ]
+    const writtenChapters = allChapters.filter(c => c.title !== null)
+
+    if (writtenChapters.length === 0) {
+      msg('The pages are blank. No chapters have been written yet.', 'system')
+      return
+    }
+
+    const cursor = bookReadingCursorRef.current
+    if (cursor >= writtenChapters.length) {
+      msg('You have reached the end of the written chapters.', 'system')
+      bookReadingCursorRef.current = 0
+      return
+    }
+
+    const chapter = writtenChapters[cursor]
+    msg(formatChapterReading(chapter.number, chapter.title, chapter.story), 'system')
+    bookReadingCursorRef.current = cursor + 1
+
+    if (cursor + 1 < writtenChapters.length) {
+      msg(`(${cursor + 2} of ${writtenChapters.length} chapters — type "read more" to continue)`, 'system')
+    } else {
+      msg(`(End of written chapters — ${writtenChapters.length} of 8 complete)`, 'system')
+      bookReadingCursorRef.current = 0
+    }
   }
 
   function handleTalk(npcName) {
@@ -904,8 +974,20 @@ export function useGameEngine() {
 
     if (state.awaitingAppearance) {
       msg(`> ${text}`, 'command')
-      dispatch({ type: A.SET_PLAYER_APPEARANCE, appearance: text })
-      msg(`You study your reflection. ${text}`, 'narrative')
+      dispatch({ type: A.SET_AWAITING_APPEARANCE, value: false })
+      runAppearanceLlm(text)
+      return
+    }
+
+    if (state.awaitingMirrorConfirmation) {
+      msg(`> ${text}`, 'command')
+      dispatch({ type: A.SET_AWAITING_MIRROR_CONFIRMATION, value: false })
+      const lower = text.trim().toLowerCase()
+      if (lower === 'yes' || lower === 'y' || lower === 'correct' || lower === 'yes.' || lower === 'looks right') {
+        msg('You nod at your reflection, satisfied.', 'narrative')
+      } else {
+        runAppearanceLlm(text)
+      }
       return
     }
 
@@ -993,6 +1075,10 @@ export function useGameEngine() {
         handleExamine(parsed.targetName)
         break
 
+      case 'read_more':
+        handleReadMore()
+        break
+
       case 'notice':
         runNoticeLlm(parsed.noticedThing)
         break
@@ -1046,7 +1132,7 @@ export function useGameEngine() {
           `In the world of Word World, this is represented as the Gem Stone losing its glow. ` +
           `Once the rate limit clears and your next action succeeds, the Gem Stone will light up again automatically.\n\n` +
           `RECOMMENDATION: Type "save <name>" now to preserve your progress, and come back to adventure more tomorrow. `+
-          `Use "load <name>" to load the save later`,
+          `Use "load <name>" to load the save later.`,
           'system'
         )
         break
