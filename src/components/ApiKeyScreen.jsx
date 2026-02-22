@@ -38,7 +38,7 @@ export default function ApiKeyScreen({ onApiKeySet }) {
 
 A text adventure
 By Kaius Reese and Leonard Reese
-Version 0.1`}</pre>
+Version ${__APP_VERSION__}`}</pre>
         <p className={styles.narrative}>
           The Librarian stands before you in a chamber of warm amber light,
           holding a small lacquered box. A keyhole glints at its center.
