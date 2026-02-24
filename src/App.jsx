@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Analytics } from '@vercel/analytics/react'
 import ApiKeyScreen from './components/ApiKeyScreen.jsx'
 import MobileBlock from './components/MobileBlock.jsx'
 import Terminal from './components/Terminal.jsx'
@@ -53,5 +54,10 @@ export default function App() {
     return <ApiKeyScreen onApiKeySet={handleApiKeySet} />
   }
 
-  return <Game />
+  return (
+    <>
+      <Game />
+      <Analytics />
+    </>
+  )
 }
