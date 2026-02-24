@@ -281,12 +281,12 @@ THE TRAVELLER:
 THE FIRST ROOM (where the journey began):
   ${roomName} — ${roomDesc}
 
-Write a chapter title (4–8 words) and a chapter story (3–4 sentences, third person past tense, warm and slightly mythic, intermediate reading level — clear and vivid like a good children's book). Use the Traveller's name if known, otherwise "the Traveller".
+Write a chapter title (4–8 words) and a chapter story (4–5 sentences, third person past tense, warm and slightly mythic, intermediate reading level — clear and vivid like a good children's book). Use the Traveller's name if known, otherwise "the Traveller". If the Traveller's appearance is known, let it color the prose — their look, bearing, or presence should feel present in the text, not just listed.
 
 Respond with JSON:
 {
   "chapter1Title": "string (4–8 word chapter title)",
-  "chapter1Story": "string (3–4 sentence storybook prose, third person past tense)"
+  "chapter1Story": "string (4–5 sentence storybook prose, third person past tense)"
 }`
 }
 
@@ -361,14 +361,14 @@ Determine whether the player's response reflects the spirit of the Elelem and is
 A response succeeds if it shows genuine engagement, creativity, honesty, or wisdom — not necessarily the "right" answer.
 A response fails if it is dismissive, nonsensical in context, or works against the spirit of the theme.
 
-If successful, also provide a chapter title for Chapter ${chapterNumber} of the Book of Words (4–8 words, evocative, reflecting what transpired), and a chapter story (3–4 sentences of storybook prose expanding on what happened — warm and slightly mythic, intermediate reading level, like a good children's book).
+If successful, also provide a chapter title for Chapter ${chapterNumber} of the Book of Words (4–8 words, evocative, reflecting what transpired), and a chapter story (4–5 sentences of storybook prose expanding on what happened — warm and slightly mythic, intermediate reading level, like a good children's book).
 
 Respond with JSON:
 {
   "success": true or false,
   "resolution": "string (narrative resolution of the encounter, 2–4 sentences, second person, present tense — works for both pass and fail)",
   "chapterTitle": "string (only if success — 4–8 word chapter title for Book of Words)",
-  "chapterStory": "string (only if success — 3–4 sentence storybook prose for Book of Words, third person past tense — always refer to the protagonist as ${protagonistName})",
+  "chapterStory": "string (only if success — 4–5 sentence storybook prose for Book of Words, third person past tense — always refer to the protagonist as ${protagonistName})",
   "failureReason": "string (only if failure — one sentence, in-world reason the Elelem did not accept the response)"
 }`
 }
@@ -507,7 +507,7 @@ Respond with JSON:
 
 RULES:
 - Stay completely in character. Do not break the fourth wall.
-- Set "askingForName": true ONLY if ${npc.name} is currently asking what the player's name is.
+- Set "askingForName": true ONLY if ${npc.name} is currently asking what the player's name is.${player.name ? `\n- The player's name is "${player.name}". Do NOT ask for their name — it is already known.` : ''}
 - Available actions (same types as the command interpreter — use sparingly):
   SPAWN_NPC, REMOVE_NPC, ADD_ITEM_TO_ROOM, REMOVE_ITEM_FROM_ROOM, ADD_EXIT, REMOVE_EXIT
 - The NPC may give items, open doors, reveal secrets, or simply talk.
