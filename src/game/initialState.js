@@ -1,10 +1,21 @@
 import { START_POSITION, GEM_STONE_ID, BOOK_OF_WORDS_ID, STORY_CIRCLE } from './constants.js'
-import { getCellKey, generateEncounterLocations } from './worldUtils.js'
+import { getCellKey, generateSpecialEventRooms } from './worldUtils.js'
 
 let msgIdCounter = 0
 export function makeId() { return `msg_${Date.now()}_${msgIdCounter++}` }
 
 function todayString() { return new Date().toDateString() }
+
+/** The Librarian — always present in the starting room. Seeded programmatically, not by the LLM. */
+export const LIBRARIAN_NPC = {
+  id: 'librarian',
+  name: 'the Librarian',
+  description: 'A tall, calm figure in worn linen, with ink-stained fingers and a warm smile. They guided you here, and are genuinely curious about the Traveller before them.',
+  dialogueHistory: [],
+  hasAskedName: false,
+  aggro: false,
+  aggroNarrative: null,
+}
 
 /** The Book of Words — narrative spine of the game. Found in starting room, cannot be dropped. */
 export const BOOK_OF_WORDS_ITEM = {
@@ -65,7 +76,7 @@ A small, faceted gem stone tumbles into your palm — warm, pulsing with soft in
 The world assembles itself around you, piece by piece, called into being by your presence.`
 
 const INTRO_HINT =
-`Type LOOK to see where you are. Type NOTICE [thing] to bring something into being. Type HELP for a list of commands.`
+`Type LOOK to see where you are. Type NOTICE [thing] to bring something into being. Type TALK to speak to a character. Type HELP for a list of commands.`
 
 /**
  * @returns {import('./models.js').GameState}
@@ -85,7 +96,7 @@ export function createGameState() {
         name: null,
         description: null,
         items: [{ ...BOOK_OF_WORDS_ITEM }],
-        npcs: [],
+        npcs: [{ ...LIBRARIAN_NPC }],
         exits: [],
         hasMirror: false,
         mirrorUsed: false,
@@ -112,13 +123,15 @@ export function createGameState() {
       chapter1Story: null,
       chapters: STORY_CIRCLE.slice(1).map(sc => ({
         number: sc.chapter,
-        column: sc.chapter - 2, // col A=0 → ch2, col G=6 → ch8
         title: null,
         story: null,
         completed: false,
       })),
     },
-    encounterLocations: generateEncounterLocations(),
+    encounterLocations: [],
+    specialEventRooms: generateSpecialEventRooms(),
+    roomsExplored: 0,
+    chapter1Triggered: false,
     activeEncounter: null,
     endGameReady: false,
     endGameTriggered: false,

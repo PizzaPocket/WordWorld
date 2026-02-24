@@ -15,7 +15,7 @@ export function initClient(apiKey) {
     {
       model: 'gemini-2.5-flash-lite',
       generationConfig: {
-        temperature: 0.9,
+        temperature: 1.3,
         maxOutputTokens: 1024,
       },
     },

@@ -55,6 +55,8 @@ function parseNpc(raw) {
     description: isString(raw.description) ? raw.description.trim() : '',
     dialogueHistory: [],
     hasAskedName: false,
+    aggro: isString(raw.aggroNarrative) && raw.aggroNarrative.trim().length > 0,
+    aggroNarrative: isString(raw.aggroNarrative) ? raw.aggroNarrative.trim() : null,
   }
 }
 
@@ -76,6 +78,7 @@ function parseBlockedExit(raw) {
 
 const VALID_ACTION_TYPES = new Set([
   'ADD_ITEM_TO_INVENTORY',
+  'ADD_ITEM_TO_WEARING',
   'REMOVE_ITEM_FROM_ROOM',
   'ADD_ITEM_TO_ROOM',
   'REMOVE_ITEM_FROM_INVENTORY',
@@ -107,6 +110,16 @@ export function sanitizeActions(actions, playerPos) {
     if (a.type === 'ADD_EXIT' || a.type === 'REMOVE_EXIT') {
       if (!VALID_DIRECTIONS.has(a.direction)) return false
       if (a.type === 'ADD_EXIT' && !getAdjacentCoord(playerPos, a.direction)) return false
+    }
+
+    // Validate TRANSFORM_ITEM — newItem must have at least id and name
+    if (a.type === 'TRANSFORM_ITEM') {
+      if (!a.newItem || !isString(a.newItem.id) || !isString(a.newItem.name)) return false
+    }
+
+    // Validate DAMAGE_ITEM — description must be a non-empty string
+    if (a.type === 'DAMAGE_ITEM') {
+      if (!isString(a.description) || !a.description.trim()) return false
     }
 
     return true
@@ -196,32 +209,35 @@ export function parseExamineResponse(rawText, playerPos) {
   try {
     const data = JSON.parse(stripFences(rawText))
     const examineText = isString(data.examineText) ? data.examineText.trim() : 'You look closely but notice nothing new.'
+    const reflectiveItem = data.reflectiveItem === true
     const actions = sanitizeActions(data.actions, playerPos)
-    return { ok: true, data: { examineText, actions } }
+    return { ok: true, data: { examineText, reflectiveItem, actions } }
   } catch (err) {
     return { ok: false, error: String(err), rawText }
   }
 }
 
 /**
- * Parse the combined start-room + chapter-1-title response.
- * Falls back to parseRoomResponse if the wrapper shape is missing.
+ * Parse the start-room response (standard room schema — no chapter 1 wrapper).
  * @param {string} rawText
  * @returns {{ ok: true, data: Object } | { ok: false, error: string, rawText: string }}
  */
 export function parseStartRoomResponse(rawText) {
+  return parseRoomResponse(rawText)
+}
+
+/**
+ * Parse the Chapter One writing response.
+ * @param {string} rawText
+ * @returns {{ ok: true, data: { chapter1Title: string, chapter1Story: string|null } } | { ok: false, error: string, rawText: string }}
+ */
+export function parseChapter1Response(rawText) {
   try {
     const data = JSON.parse(stripFences(rawText))
-    if (data.room && typeof data.room === 'object') {
-      const roomResult = parseRoomResponse(JSON.stringify(data.room))
-      if (!roomResult.ok) return roomResult
-      const chapter1Title = isString(data.chapter1Title) ? data.chapter1Title.trim() : null
-      const chapter1Story = isString(data.chapter1Story) ? data.chapter1Story.trim() : null
-      return { ok: true, data: { ...roomResult.data, chapter1Title, chapter1Story } }
-    }
-    const roomResult = parseRoomResponse(rawText)
-    if (!roomResult.ok) return roomResult
-    return { ok: true, data: { ...roomResult.data, chapter1Title: null, chapter1Story: null } }
+    const chapter1Title = isString(data.chapter1Title) ? data.chapter1Title.trim() : null
+    if (!chapter1Title) return { ok: false, error: 'Missing chapter1Title', rawText }
+    const chapter1Story = isString(data.chapter1Story) ? data.chapter1Story.trim() : null
+    return { ok: true, data: { chapter1Title, chapter1Story } }
   } catch (err) {
     return { ok: false, error: String(err), rawText }
   }
@@ -258,6 +274,26 @@ export function parseEncounterJudgmentResponse(rawText) {
     const chapterStory = success && isString(data.chapterStory) ? data.chapterStory.trim() : null
     const failureReason = !success && isString(data.failureReason) ? data.failureReason.trim() : null
     return { ok: true, data: { success, resolution, chapterTitle, chapterStory, failureReason } }
+  } catch (err) {
+    return { ok: false, error: String(err), rawText }
+  }
+}
+
+const VALID_AGGRO_OUTCOMES = new Set(['defeated', 'pacified', 'failed'])
+
+/**
+ * Parse the aggro encounter judgment response.
+ * @param {string} rawText
+ * @returns {{ ok: true, data: { outcome: string, resolution: string, pacifiedDescription: string|null } } | { ok: false, error: string, rawText: string }}
+ */
+export function parseAggroJudgmentResponse(rawText) {
+  try {
+    const data = JSON.parse(stripFences(rawText))
+    const outcome = VALID_AGGRO_OUTCOMES.has(data.outcome) ? data.outcome : 'failed'
+    const resolution = isString(data.resolution) ? data.resolution.trim() : 'The encounter ends.'
+    const pacifiedDescription = outcome === 'pacified' && isString(data.pacifiedDescription)
+      ? data.pacifiedDescription.trim() : null
+    return { ok: true, data: { outcome, resolution, pacifiedDescription } }
   } catch (err) {
     return { ok: false, error: String(err), rawText }
   }

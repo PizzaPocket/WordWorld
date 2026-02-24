@@ -1,5 +1,5 @@
 import * as A from './gameActions.js'
-import { getCellKey, getAdjacentCoord } from './worldUtils.js'
+import { getCellKey, getAdjacentCoord, generateSpecialEventRooms } from './worldUtils.js'
 import { createMessage, GEM_STONE_ITEM } from './initialState.js'
 import { START_POSITION, GEM_STONE_ID, BOOK_OF_WORDS_ID } from './constants.js'
 
@@ -30,6 +30,7 @@ function applyLlmAction(state, action) {
     case 'ADD_ITEM_TO_INVENTORY': {
       const item = cell.items.find(i => i.id === action.itemId)
         || state.player.wearing.find(i => i.id === action.itemId)
+        || action.item  // fallback: direct item creation (e.g. from NOTICE)
       if (!item) return state
       return {
         ...state,
@@ -102,6 +103,20 @@ function applyLlmAction(state, action) {
           holding: state.player.holding?.id === action.itemId ? action.newItem : state.player.holding,
         },
         grid: { ...state.grid, [cellKey]: { ...cell, items: replaceItem(cell.items) } }
+      }
+    }
+
+    case 'ADD_ITEM_TO_WEARING': {
+      const item = state.player.inventory.find(i => i.id === action.itemId)
+        || action.item  // fallback: direct item creation (e.g. from NOTICE)
+      if (!item) return state
+      return {
+        ...state,
+        player: {
+          ...state.player,
+          inventory: state.player.inventory.filter(i => i.id !== action.itemId),
+          wearing: [...state.player.wearing, item],
+        }
       }
     }
 
@@ -461,9 +476,31 @@ export function gameReducer(state, action) {
     case A.SET_FIRST_ROOM_GENERATED:
       return { ...state, firstRoomGenerated: true }
 
-    case A.LOAD_SAVE: {
+    case A.SET_CHAPTER1_TRIGGERED:
+      return { ...state, chapter1Triggered: true }
+
+    case A.INCREMENT_ROOMS_EXPLORED:
+      return { ...state, roomsExplored: state.roomsExplored + 1 }
+
+    case A.REGISTER_ENCOUNTER_LOCATION: {
+      const newEntry = {
+        x: action.coord.x, y: action.coord.y,
+        chapter: action.chapter,
+        completed: false, resolution: null, npcName: null,
+      }
       return {
-        ...action.saveData,
+        ...state,
+        encounterLocations: [...state.encounterLocations, newEntry],
+        specialEventRooms: state.specialEventRooms.map(e =>
+          e.chapter === action.chapter ? { ...e, fired: true } : e
+        ),
+      }
+    }
+
+    case A.LOAD_SAVE: {
+      const sd = action.saveData
+      return {
+        ...sd,
         llmStatus: 'idle',
         llmError: null,
         lastError: null,
@@ -473,6 +510,11 @@ export function gameReducer(state, action) {
         pendingNpcId: null,
         lastFailedPrompt: null,
         activeEncounter: null,
+        // Backwards compat for saves created before the sequential-events refactor
+        specialEventRooms: sd.specialEventRooms ?? generateSpecialEventRooms(),
+        roomsExplored: sd.roomsExplored ?? 0,
+        chapter1Triggered: sd.chapter1Triggered ?? (sd.bookOfWords?.chapter1Title != null),
+        encounterLocations: sd.encounterLocations ?? [],
       }
     }
 

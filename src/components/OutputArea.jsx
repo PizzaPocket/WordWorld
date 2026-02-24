@@ -4,6 +4,30 @@ import styles from './OutputArea.module.css'
 
 const TYPING_SPEED_MS = 6 // ms per character for animated messages
 
+// Retro loader: 3 full spins then 2 ellipsis cycles, looping
+const SPIN = ['|', '/', '\u2014', '\\']
+const DOTS = ['.', '..', '...']
+const LOADER_SEQUENCE = [
+  ...Array.from({ length: 3 }, () => SPIN).flat().map(char => ({ char, delay: 120 })),
+  ...Array.from({ length: 2 }, () => DOTS).flat().map(char => ({ char, delay: 350 })),
+]
+
+function Loader() {
+  const [frame, setFrame] = useState(0)
+  useEffect(() => {
+    const id = setTimeout(
+      () => setFrame(f => (f + 1) % LOADER_SEQUENCE.length),
+      LOADER_SEQUENCE[frame].delay
+    )
+    return () => clearTimeout(id)
+  }, [frame])
+  return (
+    <div className={`${styles.message} ${styles.loading}`}>
+      {LOADER_SEQUENCE[frame].char}
+    </div>
+  )
+}
+
 /**
  * Renders a single message, optionally with a typewriter animation.
  * @param {{ message: import('../game/models.js').OutputMessage, animate: boolean, onDone: () => void, scrollRef: React.RefObject<HTMLElement> }} props
@@ -72,11 +96,7 @@ export default function OutputArea({ messages, isLoading, onMessageAnimated }) {
           scrollRef={containerRef}
         />
       ))}
-      {isLoading && (
-        <div className={`${styles.message} ${styles.loading}`}>
-          ...
-        </div>
-      )}
+      {isLoading && <Loader />}
     </div>
   )
 }

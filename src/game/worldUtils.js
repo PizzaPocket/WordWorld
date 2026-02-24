@@ -1,4 +1,4 @@
-import { GRID_WIDTH, GRID_HEIGHT, DIRECTION_VECTORS, START_POSITION } from './constants.js'
+import { GRID_WIDTH, GRID_HEIGHT, DIRECTION_VECTORS } from './constants.js'
 
 /**
  * @param {import('./models.js').Coord} coord
@@ -41,23 +41,29 @@ export function getValidDirections(coord) {
 }
 
 /**
- * Generates 7 encounter locations — one per column (x 0–6), random row.
- * Excludes D4 (start) and its four cardinal neighbours (C4, D3, D5, E4)
- * so the player has time to establish their character before hitting an encounter.
- * Each location maps to a story circle chapter (2–8).
- * @returns {{ x: number, y: number, chapter: number, completed: boolean, resolution: string|null, npcName: string|null }[]}
+ * 47 remaining rooms (rooms 3–49) divided into 7 sets.
+ * First 5 sets have 7 rooms each; last 2 sets have 6 rooms each (5×7 + 2×6 = 47).
+ * Chapters 2–7 fire at a random room within their set. Chapter 8 fires at room 47.
  */
-export function generateEncounterLocations() {
-  // Exclude the start cell and its four cardinal neighbours
-  const isExcluded = (col, row) =>
-    (col === START_POSITION.x && Math.abs(row - START_POSITION.y) <= 1) ||
-    (row === START_POSITION.y && Math.abs(col - START_POSITION.x) === 1)
+const SPECIAL_EVENT_SETS = [
+  [1,  7 ],  // chapter 2
+  [8,  14],  // chapter 3
+  [15, 21],  // chapter 4
+  [22, 28],  // chapter 5
+  [29, 35],  // chapter 6
+  [36, 41],  // chapter 7
+  [42, 47],  // chapter 8 — always room 47
+]
 
-  return Array.from({ length: 7 }, (_, x) => {
-    let y
-    do { y = Math.floor(Math.random() * GRID_HEIGHT) }
-    while (isExcluded(x, y))
-    return { x, y, chapter: x + 2, completed: false, resolution: null, npcName: null }
+/**
+ * Pre-computes when each Special Event (chapters 2–8) will fire, by room count.
+ * @returns {{ chapter: number, room: number, fired: boolean }[]}
+ */
+export function generateSpecialEventRooms() {
+  return SPECIAL_EVENT_SETS.map(([start, end], i) => {
+    const chapter = i + 2
+    const room = chapter === 8 ? 47 : Math.floor(Math.random() * (end - start + 1)) + start
+    return { chapter, room, fired: false }
   })
 }
 

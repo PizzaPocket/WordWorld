@@ -3,14 +3,15 @@ import { gameReducer } from '../game/gameReducer.js'
 import { createGameState, makeId } from '../game/initialState.js'
 import * as A from '../game/gameActions.js'
 import { parseCommand } from '../game/commandParser.js'
-import { getCellKey, getAdjacentCoord, getNeighborContext, findEncounterAt } from '../game/worldUtils.js'
+import { getCellKey, getAdjacentCoord, getValidDirections, getNeighborContext, findEncounterAt } from '../game/worldUtils.js'
 import { coordToLabel, START_POSITION, BOOK_OF_WORDS_ID, STORY_CIRCLE } from '../game/constants.js'
 import { describeRoom, formatInventory, formatHelp, formatPlayerStatus, formatBookOfWords, formatChapterReading } from '../game/textFormatters.js'
-import { BOOK_OF_WORDS_ITEM } from '../game/initialState.js'
+import { BOOK_OF_WORDS_ITEM, LIBRARIAN_NPC } from '../game/initialState.js'
 import { generate } from '../llm/geminiClient.js'
 import {
   buildRoomPrompt,
   buildStartRoomPrompt,
+  buildChapter1Prompt,
   buildEncounterPrompt,
   buildEncounterJudgmentPrompt,
   buildEndGamePrompt,
@@ -19,10 +20,12 @@ import {
   buildExaminePrompt,
   buildNoticePrompt,
   buildAppearancePrompt,
+  buildAggroJudgmentPrompt,
 } from '../llm/prompts.js'
 import {
   parseRoomResponse,
   parseStartRoomResponse,
+  parseChapter1Response,
   parseEncounterResponse,
   parseEncounterJudgmentResponse,
   parseEndGameResponse,
@@ -31,6 +34,7 @@ import {
   parseExamineResponse,
   parseNoticeResponse,
   parseAppearanceResponse,
+  parseAggroJudgmentResponse,
 } from '../llm/responseParser.js'
 import {
   saveGame,
@@ -169,9 +173,13 @@ export function useGameEngine() {
     const isFirstVisit = !state.grid[getCellKey(coord)]?.generated
 
     const forceMirror = !isStartRoom && !state.firstRoomGenerated
+    const allowBlockedExit = Math.random() < 1 / 3
+    // No LLM-generated NPCs in the mirror room or in rooms that already hosted a special event
+    const hasCompletedEvent = encounterContext?.completed === true
+    const npcType = (forceMirror || hasCompletedEvent) ? 'none' : (Math.random() < 1 / 3 ? (Math.random() < 0.25 ? 'aggro' : 'passive') : 'none')
     const userPrompt = (isStartRoom && isFirstVisit)
       ? buildStartRoomPrompt(coord, neighborCtx)
-      : buildRoomPrompt(coord, neighborCtx, encounterContext, forceMirror, state.player)
+      : buildRoomPrompt(coord, neighborCtx, encounterContext, forceMirror, state.player, allowBlockedExit, npcType)
 
     dispatch({ type: A.SET_LAST_FAILED_PROMPT, prompt: { type: 'room', coord } })
     setLoading(true)
@@ -186,10 +194,19 @@ export function useGameEngine() {
 
       let { name, description, narrative, items, npcs, exits, blockedExits, hasMirror } = result.data
 
-      // Ensure the Book of Words is always present in the start room using the
-      // canonical constant — replace any LLM-generated version (which gets lowercased)
+      // Guarantee every in-bounds direction is accounted for — if the LLM silently
+      // omits a valid direction (or blockedExits was cleared above) it becomes an open exit
+      const accountedFor = new Set([...exits, ...(blockedExits || []).map(b => b.direction)])
+      for (const dir of getValidDirections(coord)) {
+        if (!accountedFor.has(dir)) exits = [...exits, dir]
+      }
+
+      // Ensure canonical items/NPCs are always present in the start room
       if (isStartRoom) {
         items = [{ ...BOOK_OF_WORDS_ITEM }, ...items.filter(i => i.id !== BOOK_OF_WORDS_ID)]
+        if (!npcs.some(n => n.id === 'librarian')) {
+          npcs = [{ ...LIBRARIAN_NPC }, ...npcs]
+        }
       }
 
       // forceMirror: guarantee the flag is set even if the LLM ignores the instruction
@@ -215,18 +232,15 @@ export function useGameEngine() {
       dispatch({ type: A.SET_LAST_FAILED_PROMPT, prompt: null })
       reactivateGemStone()
 
-      // Store chapter 1 title + story (only shown when player reads the book)
-      if (isStartRoom && isFirstVisit && result.data.chapter1Title) {
-        dispatch({ type: A.SET_CHAPTER_TITLE, chapter: 1, title: result.data.chapter1Title, story: result.data.chapter1Story ?? null })
-      }
-
       if (showArrival) msg(narrative, 'narrative')
       if (showArrival) msg('', 'narrative')
-      msg(describeRoom(cell, coord), 'narrative', hasMirror ? () => {
+      const aggroNpc = cell.npcs?.find(n => n.aggro)
+      const mirrorCallback = () => {
         msg('There is a mirror here. You catch a glimpse of your reflection.', 'system')
         msg('Describe what you see when you look at yourself.', 'system')
         dispatch({ type: A.SET_AWAITING_APPEARANCE, value: true })
-      } : null)
+      }
+      msg(describeRoom(cell, coord), 'narrative', hasMirror ? mirrorCallback : aggroNpc ? () => triggerAggroEncounter(aggroNpc) : null)
 
       setLoading(false)
     } catch (err) {
@@ -356,6 +370,57 @@ export function useGameEngine() {
         msg(`The Elelem cannot judge. The moment passes without resolution.`, 'narrative')
         msg('Type "debug" to see the error.', 'system')
       }
+    }
+  }
+
+  function triggerAggroEncounter(aggroNpc) {
+    if (stateRef.current.activeEncounter) return
+    msg(aggroNpc.aggroNarrative, 'narrative', () => {
+      msg('What do you do?', 'system')
+      dispatch({ type: A.SET_ACTIVE_ENCOUNTER, encounter: { type: 'aggro', npcId: aggroNpc.id, stage: 'awaiting_response' } })
+    })
+  }
+
+  async function handleAggroResponse(playerInput) {
+    const state = stateRef.current
+    const { npcId } = state.activeEncounter
+    const cell = currentCell()
+    const npc = cell?.npcs.find(n => n.id === npcId)
+    if (!npc) return
+
+    setLoading(true)
+    try {
+      const rawText = await generate(buildAggroJudgmentPrompt(npc, playerInput))
+      const result = parseAggroJudgmentResponse(rawText)
+      if (!result.ok) throw new Error(result.error)
+
+      dispatch({ type: A.SET_ACTIVE_ENCOUNTER, encounter: null })
+      const { outcome, resolution, pacifiedDescription } = result.data
+
+      if (outcome === 'defeated') {
+        dispatch({ type: A.APPLY_LLM_ACTIONS, actions: [{ type: 'REMOVE_NPC', npcId }] })
+        msg(resolution, 'narrative')
+      } else if (outcome === 'pacified') {
+        dispatch({ type: A.APPLY_LLM_ACTIONS, actions: [
+          { type: 'REMOVE_NPC', npcId },
+          { type: 'SPAWN_NPC', npc: { id: npcId, name: npc.name, description: pacifiedDescription ?? npc.description, aggro: false, aggroNarrative: null } },
+        ]})
+        msg(resolution, 'narrative')
+      } else {
+        msg(resolution, 'narrative', () => {
+          dispatch({ type: A.RESET_TO_START })
+          msg(
+            `The Gem Stone pulses faintly. When your vision clears, you stand once again at the heart of Word World.`,
+            'narrative'
+          )
+        })
+      }
+    } catch (err) {
+      dispatch({ type: A.SET_ACTIVE_ENCOUNTER, encounter: null })
+      dispatch({ type: A.SET_LAST_ERROR, error: String(err) })
+      msg('Something went wrong. You step back.', 'system')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -562,13 +627,28 @@ export function useGameEngine() {
 
       if (!result.ok) throw new Error(result.error)
 
-      const { examineText, actions } = result.data
+      const { examineText, actions, reflectiveItem } = result.data
 
-      if (targetType === 'item') {
+      // Don't cache reflective items — every examination should re-trigger the reflection flow
+      if (targetType === 'item' && !reflectiveItem) {
         dispatch({ type: A.SET_ITEM_EXAMINE_TEXT, itemId: target.id, text: examineText })
       }
       reactivateGemStone()
-      msg(examineText, 'narrative')
+
+      const afterExamine = reflectiveItem ? () => {
+        const s = stateRef.current
+        if (s.player.appearance) {
+          msg(`In the reflection, you see yourself:\n\n${s.player.appearance}`, 'narrative', () => {
+            msg('Does this still feel right? Type "yes" to confirm, or describe what has changed.', 'system')
+            dispatch({ type: A.SET_AWAITING_MIRROR_CONFIRMATION, value: true })
+          })
+        } else {
+          msg('You catch a glimpse of yourself. Describe what you see.', 'system')
+          dispatch({ type: A.SET_AWAITING_APPEARANCE, value: true })
+        }
+      } : null
+
+      msg(examineText, 'narrative', afterExamine)
 
       if (actions.length) {
         dispatch({ type: A.APPLY_LLM_ACTIONS, actions })
@@ -621,10 +701,53 @@ export function useGameEngine() {
 
   // --- Command handlers ---
 
+  async function runChapter1Generation(direction) {
+    if (isGemStoneDepleted()) return
+
+    dispatch({ type: A.SET_CHAPTER1_TRIGGERED })
+    setLoading(true)
+
+    const state = stateRef.current
+    const startCell = state.grid[getCellKey(START_POSITION)]
+
+    try {
+      const rawText = await generate(buildChapter1Prompt(state.player, startCell))
+      const result = parseChapter1Response(rawText)
+      if (!result.ok) throw new Error(result.error)
+
+      const { chapter1Title, chapter1Story } = result.data
+      reactivateGemStone()
+      dispatch({ type: A.SET_CHAPTER_TITLE, chapter: 1, title: chapter1Title, story: chapter1Story ?? null })
+      msg(
+        `As you leave, you notice the Gem Stone pulse with a quiet warmth.\n\n` +
+        `The Librarian's voice reaches you through it, gentle as still water:\n\n` +
+        `"The first chapter is written in the Book of Words."`,
+        'system'
+      )
+      setLoading(false)
+      handleMove(direction)
+    } catch (err) {
+      setLoading(false, String(err))
+      dispatch({ type: A.SET_LAST_ERROR, error: String(err) })
+      if (String(err).includes('429')) {
+        handleRateLimit()
+      } else {
+        msg(`The Gem Stone flickers. The first chapter goes unrecorded.`, 'narrative')
+        handleMove(direction)
+      }
+    }
+  }
+
   function handleMove(direction) {
     const state = stateRef.current
     const cell = currentCell()
     if (!cell) return
+
+    const newCoord = getAdjacentCoord(state.player.position, direction)
+    if (!newCoord) {
+      msg(`The Gem Stone's power does not seem to extend past there.`, 'narrative')
+      return
+    }
 
     if (cell.generated && !cell.exits.includes(direction)) {
       const blocked = (cell.blockedExits || []).find(e => e.direction === direction)
@@ -636,13 +759,9 @@ export function useGameEngine() {
       return
     }
 
-    const newCoord = getAdjacentCoord(state.player.position, direction)
-    if (!newCoord) {
-      msg(
-        `The Gem Stone grows warm in your palm, almost a warning. ` +
-        `Beyond here, the Elelem's reach ends — the world does not extend farther.`,
-        'narrative'
-      )
+    // Chapter 1 trigger: first time the player leaves the mirror room
+    if (state.firstRoomGenerated && !state.chapter1Triggered && cell.hasMirror) {
+      runChapter1Generation(direction)
       return
     }
 
@@ -665,15 +784,28 @@ export function useGameEngine() {
     const newKey = getCellKey(newCoord)
     const newCell = state.grid[newKey]
 
-    // Check for encounter location
+    // Check if returning to a known encounter location
     const encounter = findEncounterAt(newCoord, state.encounterLocations)
     if (encounter && !encounter.completed) {
       runEncounterSetup(newCoord, encounter)
       return
     }
 
+    // New ungenerated room (room 3+): check for special events by room count
+    if (!newCell?.generated && state.firstRoomGenerated) {
+      const newRoomsExplored = state.roomsExplored + 1
+      dispatch({ type: A.INCREMENT_ROOMS_EXPLORED })
+      const specialEvent = state.specialEventRooms.find(e => e.room === newRoomsExplored && !e.fired)
+      if (specialEvent) {
+        dispatch({ type: A.REGISTER_ENCOUNTER_LOCATION, chapter: specialEvent.chapter, coord: newCoord })
+        runEncounterSetup(newCoord, specialEvent)
+        return
+      }
+    }
+
     if (newCell?.generated) {
-      msg(describeRoom(newCell, newCoord), 'narrative')
+      const aggroNpc = newCell.npcs.find(n => n.aggro)
+      msg(describeRoom(newCell, newCoord), 'narrative', aggroNpc ? () => triggerAggroEncounter(aggroNpc) : null)
     } else if (!state.gemStoneActive) {
       msg(
         `You step forward, but the world does not follow. ` +
@@ -969,7 +1101,11 @@ export function useGameEngine() {
     // Encounter response intercept — any input becomes the player's encounter answer
     if (state.activeEncounter?.stage === 'awaiting_response') {
       msg(`> ${text}`, 'command')
-      handleEncounterResponse(text)
+      if (state.activeEncounter.type === 'aggro') {
+        handleAggroResponse(text)
+      } else {
+        handleEncounterResponse(text)
+      }
       return
     }
 

@@ -24,8 +24,10 @@
  * @property {string} id
  * @property {string} name
  * @property {string} description
- * @property {string[]} dialogueHistory - alternating ["player: ...", "npc: ..."] lines
- * @property {boolean} hasAskedName     - did this NPC ask the player's name?
+ * @property {string[]} dialogueHistory  - alternating ["player: ...", "npc: ..."] lines
+ * @property {boolean} hasAskedName      - did this NPC ask the player's name?
+ * @property {boolean} aggro             - does this NPC attack on sight?
+ * @property {string|null} aggroNarrative - what the NPC does the instant the player enters
  */
 
 /**

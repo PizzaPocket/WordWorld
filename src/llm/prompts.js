@@ -7,7 +7,7 @@ export const SYSTEM_PROMPT = `You are the game engine for a text-based adventure
 The world is a 7x7 grid of cells (columns A-G, rows 1-7). The player starts at D4 (center).
 The world is imbued with life by the Elelem, an omnipresent life force. Be creative, surreal, and unpredictable. There is no fixed theme — rooms may end up being themed atmospheres such as mundane, alien, fantastic, playful, absurd, dreamlike, or anything in between.
 Maintain loose internal consistency within a single session, but don't be afraid to be strange.
-Content should be written in Intermediate Reader or YA reading level, not too verbose or flowery vocabulary.
+Write at an intermediate reading level — clear, direct sentences. Vivid but not overwrought. Aim for the tone of a good middle-grade adventure novel: concrete images, no purple prose, no stacking adjectives.
 
 CRITICAL RULES:
 - Always respond with valid JSON matching the exact schema requested. No extra keys, no missing keys.
@@ -71,7 +71,7 @@ function buildPlayerContext(player) {
   return `TRAVELLER (this person is entering the room — let their nature subtly echo in what you place here, but do not overdo it):\n${lines.join('\n')}`
 }
 
-export function buildRoomPrompt(coord, neighborContext, encounterContext = null, forceMirror = false, player = null) {
+export function buildRoomPrompt(coord, neighborContext, encounterContext = null, forceMirror = false, player = null, allowBlockedExit = false, npcType = 'none') {
   const { x, y } = coord
   const blocked = []
   if (y === 0) blocked.push('"north"')
@@ -83,6 +83,29 @@ export function buildRoomPrompt(coord, neighborContext, encounterContext = null,
   const row = y + 1
 
   const playerSection = player ? buildPlayerContext(player) : ''
+
+  const npcSchema = npcType === 'none' ? '' : npcType === 'aggro'
+    ? `  "npcs": [
+    {
+      "id": "string (snake_case, unique)",
+      "name": "string",
+      "description": "string (one sentence)",
+      "aggroNarrative": "string (1-2 sentences: what this NPC does the instant the player enters — threatening, immediate, present tense)"
+    }
+  ],`
+    : `  "npcs": [
+    {
+      "id": "string (snake_case, unique)",
+      "name": "string",
+      "description": "string (one sentence)"
+    }
+  ],`
+
+  const npcConstraint = npcType === 'none'
+    ? '- npcs: leave this as an empty array [] for this room.'
+    : npcType === 'aggro'
+      ? '- npcs: this room has exactly one hostile NPC — dangerous, territorial, or predatory. The aggroNarrative field MUST describe what they do the instant the player enters. Do not resolve the confrontation.'
+      : '- npcs: this room has exactly one NPC. Describe them as curious and open to conversation — the player should feel invited to approach them.'
 
   return `Generate content for grid cell ${col}${row} (x=${x}, y=${y}).
 
@@ -103,14 +126,7 @@ Respond with JSON matching this exact schema:
       "wearable": true or false
     }
   ],
-  "npcs": [
-    {
-      "id": "string (snake_case, unique)",
-      "name": "string",
-      "description": "string (one sentence)"
-    }
-  ],
-  "exits": ["north", "south", "east", "west"],
+${npcSchema ? npcSchema + '\n' : '  "npcs": [],\n'}  "exits": ["north", "south", "east", "west"],
   "blockedExits": [
     { "direction": "north"|"south"|"east"|"west", "obstacle": "string (one sentence describing what physically blocks this exit, as seen from the room)" }
   ],
@@ -118,11 +134,10 @@ Respond with JSON matching this exact schema:
 }
 
 CONSTRAINTS:
-- exits array: only include directions the player can walk through freely.${blocked.length ? `\n  Do NOT include: ${blocked.join(', ')} — this room is at the world boundary in that direction.` : '\n  All four directions (north, south, east, west) are within the world boundary for this room — any of them may be exits.'}
-- blockedExits: in about 1 in 3 rooms, list a direction with a visible physical obstruction (locked door, rubble, sealed arch, etc.) that COULD potentially be cleared by player action. Most rooms should have an empty blockedExits array. The description or narrative MUST mention every entry in blockedExits. Do NOT add a blockedExit for a direction that simply has no opening — only add it when a specific feature is blocking an otherwise plausible passage.
-- Directions absent from both exits and blockedExits are assumed to have no opening at all (solid wall, room corner, etc.) and need not be mentioned.
+- exits array: include every direction the player can walk through freely. Every non-boundary direction MUST appear in either exits or blockedExits — do not silently omit any.${blocked.length ? `\n  BOUNDARY DIRECTIONS: ${blocked.join(', ')} — this room is at the world's edge in those directions. Do NOT include them in exits, blockedExits, or any description or narrative. The world simply ends there; do not draw attention to it.` : '\n  All four directions (north, south, east, west) are within the world boundary — each must be either an open exit or a blocked exit.'}
+- blockedExits: ${allowBlockedExit ? 'this room MUST have exactly one blocked exit — pick one direction and describe a visible physical obstruction (locked door, rubble, sealed arch, etc.) that COULD potentially be cleared by player action. The description or narrative MUST mention it.' : 'leave this as an empty array [] for this room.'}
 - items: 0-4 items. Most rooms have 0-2 items. Empty rooms are fine and often more atmospheric.
-- npcs: 0-2 NPCs. About 1 in 4 rooms should have an NPC. When one is present, describe them as curious or clearly open to conversation — the player should feel invited to approach them.
+- ${npcConstraint}
 - hasMirror: ${forceMirror ? 'MUST be true for this room. The room contains a mirror — mention it explicitly in the description or narrative.' : 'set to true in approximately 1 out of 15 rooms.'}
 - At least 2 exits in most rooms (the world should feel explorable).${encounterContext ? `
 
@@ -130,6 +145,26 @@ ENCOUNTER HISTORY: This location was the site of a special story encounter. Let 
   NPC who appeared here: ${encounterContext.npcName || 'unknown'}
   What transpired: ${encounterContext.resolution || 'unknown'}
 The NPC may still be present (as a regular NPC) or the room may bear traces of what happened.` : ''}`
+}
+
+export function buildAggroJudgmentPrompt(npc, playerResponse) {
+  return `You are judging the outcome of a dangerous encounter in Word World.
+
+NPC: ${npc.name} — ${npc.description}
+THE THREAT: "${npc.aggroNarrative}"
+PLAYER'S RESPONSE: "${playerResponse}"
+
+Determine the outcome. Three possibilities:
+- "defeated": the player overcomes or escapes the threat by force, wit, or cunning — the NPC is gone.
+- "pacified": the player disarms, befriends, or wins over the NPC — they become calm and willing to talk.
+- "failed": the player's response is insufficient, nonsensical, or makes things worse — they are overwhelmed.
+
+Respond with JSON:
+{
+  "outcome": "defeated" or "pacified" or "failed",
+  "resolution": "string (2-3 sentences, second person, present tense — describe what happens)",
+  "pacifiedDescription": "string (only if outcome is pacified — one sentence describing the NPC now that they are calm)"
+}`
 }
 
 /**
@@ -187,20 +222,27 @@ AVAILABLE ACTION TYPES (include only if the command causes a game state change):
 { "type": "REMOVE_ITEM_FROM_INVENTORY", "itemId": "string" }
 { "type": "SET_PLAYER_NAME", "name": "string" }
 { "type": "SET_PLAYER_APPEARANCE", "appearance": "string" }
-{ "type": "DAMAGE_ITEM", "itemId": "string", "description": "string (new description)" }
+{ "type": "DAMAGE_ITEM", "itemId": "string", "description": "string (new description — use for cosmetic wear/damage only, not structural change)" }
 { "type": "TRANSFORM_ITEM", "itemId": "string", "newItem": { id, name, description, takeable, wearable } }
+  — Use TRANSFORM_ITEM whenever a player action changes what an item fundamentally is (smashed, melted, combined, etc.). This replaces the original item in-place. Never use ADD_ITEM_TO_ROOM to add the result of a transformation without also using REMOVE_ITEM_FROM_ROOM to remove the original — otherwise both will exist.
 { "type": "SPAWN_NPC", "npc": { id, name, description } }
 { "type": "REMOVE_NPC", "npcId": "string" }
 { "type": "ADD_EXIT", "direction": "north"|"south"|"east"|"west" }
 { "type": "REMOVE_EXIT", "direction": "north"|"south"|"east"|"west" }
 { "type": "PLAYER_DEATH" }
 
+ITEM STATE RULES:
+- If the player throws, drops, places, or otherwise releases an item, it MUST be removed from inventory (REMOVE_ITEM_FROM_INVENTORY). If it lands in the room, also ADD_ITEM_TO_ROOM. If it is destroyed or lost, just remove it.
+- If the player picks something up, ADD_ITEM_TO_INVENTORY + REMOVE_ITEM_FROM_ROOM.
+- Never describe an item moving without the corresponding state change actions.
+
 If the command cannot be meaningfully interpreted or is impossible in context, set "understood": false
 and provide a narrative explaining in-world why nothing happened. Never say "I don't understand".`
 }
 
 /**
- * Builds the combined start-room + chapter-1 prompt (used only for D4 first generation).
+ * Builds the start-room prompt (used only for D4 first generation).
+ * The Librarian is seeded programmatically — just instruct the LLM to reference them.
  * @param {import('../game/models.js').Coord} coord
  * @param {string} neighborContext
  * @returns {string}
@@ -213,16 +255,38 @@ ADDITIONAL REQUIREMENT — BOOK OF WORDS:
 The starting room must contain the Book of Words as one of its items. Include it exactly as:
 { "id": "book_of_words", "name": "book of words", "takeable": true, "wearable": false, "description": "A worn leather tome, its cover etched with shifting symbols. Something about it feels important." }
 
-ADDITIONAL REQUIREMENT — CHAPTER ONE TITLE:
-Also provide a chapter title for Chapter One of the Book of Words.
-Story circle theme: "A character is in a zone of comfort or familiarity."
-The title should be 4–8 words, evocative, and subtly reflect the starting room's character — without spoiling its contents.
+ADDITIONAL REQUIREMENT — THE LIBRARIAN:
+The Librarian is already present in this room. Mention them in the description or narrative — they are a tall, calm figure with ink-stained fingers who guided the player here. Do NOT add them to the npcs array (they are seeded separately).`
+}
 
-Wrap your entire response in this JSON shape instead of the plain room shape:
+/**
+ * Builds the Chapter One writing prompt — called when the player first leaves the mirror room.
+ * Uses accumulated context (player name/appearance, start room) for a richer chapter.
+ * @param {import('../game/models.js').Player} player
+ * @param {import('../game/models.js').Cell|null} startRoomCell
+ * @returns {string}
+ */
+export function buildChapter1Prompt(player, startRoomCell) {
+  const roomName = startRoomCell?.name || 'the starting chamber'
+  const roomDesc = startRoomCell?.description || ''
+
+  return `You are writing Chapter One of the Book of Words in Word World.
+
+STORY CIRCLE THEME: "A character is in a zone of comfort or familiarity."
+
+THE TRAVELLER:
+  Name: ${player.name || 'unknown (use "the Traveller")'}
+  ${player.appearance ? `Appearance: ${player.appearance}` : 'Appearance: unknown'}
+
+THE FIRST ROOM (where the journey began):
+  ${roomName} — ${roomDesc}
+
+Write a chapter title (4–8 words) and a chapter story (3–4 sentences, third person past tense, warm and slightly mythic, intermediate reading level — clear and vivid like a good children's book). Use the Traveller's name if known, otherwise "the Traveller".
+
+Respond with JSON:
 {
-  "room": { ...the standard room JSON object... },
   "chapter1Title": "string (4–8 word chapter title)",
-  "chapter1Story": "string (2–3 sentence storybook prose, third person past tense — e.g. 'The Traveller arrived at...', 'They discovered...' — warm, slightly mythic in tone; use 'the Traveller' for the protagonist until their name is known)"
+  "chapter1Story": "string (3–4 sentence storybook prose, third person past tense)"
 }`
 }
 
@@ -250,13 +314,16 @@ PLAYER:
   Appearance: ${player.appearance || 'unknown'}
   Inventory: ${inventory}
 ${bookCtx ? `\nBOOK OF WORDS (chapters written so far — let this inform the encounter's tone and continuity):\n${bookCtx}\n` : ''}
-This is a pivotal moment aligned with the theme above. The player meets an NPC who presents a situation or challenge that resonates with that theme. The encounter should:
-- Be vivid and atmospheric, fitting the Word World aesthetic
+Generate a special encounter that expresses the theme above — but the encounter can take ANY form across the full spectrum of human experience. It does not need to be dramatic or mysterious. It could be mundane, playful, absurd, tender, funny, strange, or quietly poignant. The NPC could be anyone or anything: an elderly stranger asking for directions, a child who wants to play a game, a talking animal mid-task, a robot with an urgent errand, a merchant with an unusual problem, a creature simply going about its day.
+
+The encounter should:
+- Express the Story Circle theme through situation and character — not through grand speeches or dramatic declarations
 - Feature a named NPC with a distinct voice and presence
-- Present a clear situation or dilemma the player must respond to
+- Present a clear situation the player can meaningfully respond to
 - End with the NPC waiting for the player's response
 
 Do NOT resolve the encounter — leave it open for the player to act.
+Do NOT default to mysterious figures, cloaked strangers, or portentous questions. Be specific and surprising.
 
 Respond with JSON:
 {
@@ -292,14 +359,14 @@ Determine whether the player's response reflects the spirit of the Elelem and is
 A response succeeds if it shows genuine engagement, creativity, honesty, or wisdom — not necessarily the "right" answer.
 A response fails if it is dismissive, nonsensical in context, or works against the spirit of the theme.
 
-If successful, also provide a chapter title for Chapter ${chapterNumber} of the Book of Words (4–8 words, evocative, reflecting what transpired), and a chapter story (2–3 sentences of storybook prose expanding on what happened — warm, slightly mythic, written as if narrating a fairy tale from a narrator's distance).
+If successful, also provide a chapter title for Chapter ${chapterNumber} of the Book of Words (4–8 words, evocative, reflecting what transpired), and a chapter story (3–4 sentences of storybook prose expanding on what happened — warm and slightly mythic, intermediate reading level, like a good children's book).
 
 Respond with JSON:
 {
   "success": true or false,
   "resolution": "string (narrative resolution of the encounter, 2–4 sentences, second person, present tense — works for both pass and fail)",
   "chapterTitle": "string (only if success — 4–8 word chapter title for Book of Words)",
-  "chapterStory": "string (only if success — 2–3 sentence storybook prose for Book of Words, third person past tense — e.g. 'The Traveller faced...', 'They chose...' — warm, slightly mythic in tone; use 'the Traveller' for the protagonist until their name is known)",
+  "chapterStory": "string (only if success — 3–4 sentence storybook prose for Book of Words, third person past tense — e.g. 'The Traveller faced...', 'They chose...' — warm and slightly mythic, intermediate reading level, clear and vivid like a good children's book; use 'the Traveller' for the protagonist until their name is known)",
   "failureReason": "string (only if failure — one sentence, in-world reason the Elelem did not accept the response)"
 }`
 }
@@ -349,6 +416,9 @@ export function buildNoticePrompt(noticedThing, gameState, currentCell) {
     ? currentCell.items.map(i => `${i.name}: ${i.description}`).join('; ')
     : 'none'
 
+  const holding = player.holding ? player.holding.name : 'nothing'
+  const wearing = player.wearing.length ? player.wearing.map(i => i.name).join(', ') : 'nothing'
+
   return `The player used the NOTICE command: "notice ${noticedThing}"
 
 The NOTICE mechanic allows the player to bring things into reality through focused attention.
@@ -358,6 +428,8 @@ CURRENT STATE:
 Room: ${currentCell.name || 'Unnamed'} — ${currentCell.description || '(no description)'}
 Items already in room: ${roomItems}
 Player inventory: ${player.inventory.map(i => i.name).join(', ') || 'nothing'}
+Player is holding: ${holding}
+Player is wearing: ${wearing}
 
 Interpret what the player noticed and respond with JSON:
 {
@@ -367,6 +439,8 @@ Interpret what the player noticed and respond with JSON:
 
 AVAILABLE ACTIONS:
 { "type": "ADD_ITEM_TO_ROOM", "itemId": "string", "item": { id, name, description, takeable, wearable } }
+{ "type": "ADD_ITEM_TO_INVENTORY", "itemId": "string", "item": { id, name, description, takeable, wearable } }
+{ "type": "ADD_ITEM_TO_WEARING", "itemId": "string", "item": { id, name, description, takeable: false, wearable: true } }
 { "type": "SPAWN_NPC", "npc": { id, name, description } }
 { "type": "ADD_EXIT", "direction": "north"|"south"|"east"|"west" }
 { "type": "UPDATE_ROOM_DESCRIPTION", "description": "string" }
@@ -374,8 +448,11 @@ AVAILABLE ACTIONS:
 RULES:
 - The noticed thing should feel like it was always subtly present — not conjured, but revealed.
 - Be creative. "notice a key" → a tarnished key catches the light. "notice a door" → a hairline crack resolves into a door frame.
+- If the noticed thing is something the player would be carrying or holding (e.g. "notice I'm holding a sword"), use ADD_ITEM_TO_INVENTORY.
+- If the noticed thing is something the player would be wearing (e.g. "notice I'm wearing flippers"), use ADD_ITEM_TO_WEARING.
+- Otherwise, use ADD_ITEM_TO_ROOM.
 - Items created by NOTICE should have plausible IDs (snake_case).
-- If the noticed thing already exists (matches an existing item or NPC), describe it in more detail instead of creating a duplicate.
+- If the noticed thing already exists (matches an existing item, NPC, or inventory item), describe it in more detail instead of creating a duplicate.
 - Keep it grounded in the existing room's atmosphere.`
 }
 
@@ -399,12 +476,20 @@ export function buildDialoguePrompt(npc, playerInput, gameState, currentCell) {
     ? `\nBOOK OF WORDS (the completed story — the child has come to hear this read aloud):\n${buildBookContext(gameState.bookOfWords)}\n`
     : ''
 
+  const librarianNote = npc.id === 'librarian' && !player.name
+    ? `\nNOTE: The Librarian does not yet know the Traveller's name. Ask for it naturally and warmly early in this conversation.\n`
+    : ''
+
+  const nameKnownNote = player.name
+    ? `\nNOTE: The Traveller's name is already known to be "${player.name}". Do not ask for it.\n`
+    : ''
+
   return `You are playing the role of "${npc.name}" in a text-based adventure game.
 
 NPC DESCRIPTION: ${npc.description}
 CURRENT ROOM: ${currentCell.name || 'Unnamed'} — ${currentCell.description || ''}
 PLAYER NAME: ${player.name || 'a stranger'}
-PLAYER APPEARANCE: ${player.appearance || 'unknown'}${bookSection}
+PLAYER APPEARANCE: ${player.appearance || 'unknown'}${bookSection}${librarianNote}${nameKnownNote}
 
 CONVERSATION SO FAR:
 ${historyText}
@@ -444,6 +529,7 @@ Player is holding: ${player.holding?.name || 'nothing'}
 Respond with JSON:
 {
   "examineText": "string (detailed examination, 2-5 sentences, present tense, second person)",
+  "reflectiveItem": false,
   "actions": []
 }
 
@@ -452,7 +538,8 @@ RULES:
 - For items: hint at potential uses, hidden compartments, or strangeness.
 - For NPCs: describe their reaction to being observed, their posture, eyes, clothing details.
 - Available actions (use only if examination has consequences): SPAWN_NPC, ADD_ITEM_TO_ROOM, REMOVE_ITEM_FROM_ROOM
-- Do not simply repeat the brief description. Add new information.`
+- Do not simply repeat the brief description. Add new information.
+- If the thing being examined is a mirror, reflective pool, still water, glass, or any surface that clearly shows a reflection, set "reflectiveItem": true.`
 }
 
 /**

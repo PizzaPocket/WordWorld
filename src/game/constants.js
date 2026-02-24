@@ -31,8 +31,10 @@ export const BOOK_OF_WORDS_ID = 'book_of_words'
 export const STORAGE_PREFIX = 'word-world'
 
 /**
- * Story circle sections — index 0 = chapter 1 (start room), 1–6 = chapters 2–8 (col A–G).
- * Chapter 1 is always the start room. Chapters 2–8 map to encounter locations by column.
+ * Story circle sections — one per chapter (1–8).
+ * Chapter 1 fires when the player first leaves the mirror room.
+ * Chapters 2–7 fire at a random room within seven exploration sets.
+ * Chapter 8 fires at the final unexplored room.
  */
 export const STORY_CIRCLE = [
   { chapter: 1, theme: 'A character is in a zone of comfort or familiarity' },
