@@ -18,8 +18,7 @@ export default function MobileBlock() {
   return (
     <div className={styles.screen}>
       <div className={styles.box}>
-        <pre className={styles.ascii}>{WORD_ASCII}</pre>
-        <pre className={styles.ascii}>{WORLD_ASCII}</pre>
+        <pre className={styles.ascii}>{WORD_ASCII}{'\n'}{WORLD_ASCII}</pre>
 
         <hr className={styles.divider} />
 
