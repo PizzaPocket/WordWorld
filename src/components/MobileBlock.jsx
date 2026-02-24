@@ -23,7 +23,7 @@ export default function MobileBlock() {
         <hr className={styles.divider} />
 
         <p className={styles.message}>
-          Word World is a text adventure written for the keyboard and the monitor — the way games were made before phones existed.
+          Word World is a text adventure written for the keyboard and the monitor the way games were made before smartphones existed.
         </p>
         <p className={styles.message}>
           Please open it on your desktop or laptop computer to play.
