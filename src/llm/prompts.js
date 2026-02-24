@@ -176,18 +176,18 @@ Respond with JSON:
 export function buildCommandPrompt(rawCommand, gameState, currentCell) {
   const { player } = gameState
   const roomItems = currentCell.items.length
-    ? currentCell.items.map(i => `${i.name}: ${i.description}`).join('; ')
+    ? currentCell.items.map(i => `${i.name} [id:${i.id}]: ${i.description}`).join('; ')
     : 'none'
   const roomNpcs = currentCell.npcs.length
-    ? currentCell.npcs.map(n => n.name).join(', ')
+    ? currentCell.npcs.map(n => `${n.name} [id:${n.id}]`).join(', ')
     : 'none'
   const inventory = player.inventory.length
-    ? player.inventory.map(i => i.name).join(', ')
+    ? player.inventory.map(i => `${i.name} [id:${i.id}]`).join(', ')
     : 'nothing'
   const wearing = player.wearing.length
-    ? player.wearing.map(i => i.name).join(', ')
+    ? player.wearing.map(i => `${i.name} [id:${i.id}]`).join(', ')
     : 'nothing'
-  const holding = player.holding ? player.holding.name : 'nothing'
+  const holding = player.holding ? `${player.holding.name} [id:${player.holding.id}]` : 'nothing'
 
   const openExits = currentCell.exits.join(', ') || 'none'
   const blockedExitsText = (currentCell.blockedExits || []).length
@@ -342,8 +342,9 @@ Respond with JSON:
  * @param {Object|null} [bookOfWords]
  * @returns {string}
  */
-export function buildEncounterJudgmentPrompt(playerResponse, encounterContext, storyTheme, chapterNumber, bookOfWords = null) {
+export function buildEncounterJudgmentPrompt(playerResponse, encounterContext, storyTheme, chapterNumber, bookOfWords = null, playerName = null) {
   const bookCtx = bookOfWords ? buildBookContext(bookOfWords) : null
+  const protagonistName = playerName || 'the Traveller'
   return `You are judging the outcome of a special encounter in Word World.
 
 ENCOUNTER:
@@ -352,6 +353,7 @@ ${encounterContext.narrative}
 SITUATION: ${encounterContext.situationSummary}
 STORY THEME: "${storyTheme}"
 NPC: ${encounterContext.npcName}
+PROTAGONIST NAME: ${protagonistName}
 ${bookCtx ? `\nBOOK OF WORDS (story so far):\n${bookCtx}\n` : ''}
 PLAYER'S RESPONSE: "${playerResponse}"
 
@@ -366,7 +368,7 @@ Respond with JSON:
   "success": true or false,
   "resolution": "string (narrative resolution of the encounter, 2–4 sentences, second person, present tense — works for both pass and fail)",
   "chapterTitle": "string (only if success — 4–8 word chapter title for Book of Words)",
-  "chapterStory": "string (only if success — 3–4 sentence storybook prose for Book of Words, third person past tense — e.g. 'The Traveller faced...', 'They chose...' — warm and slightly mythic, intermediate reading level, clear and vivid like a good children's book; use 'the Traveller' for the protagonist until their name is known)",
+  "chapterStory": "string (only if success — 3–4 sentence storybook prose for Book of Words, third person past tense — always refer to the protagonist as ${protagonistName})",
   "failureReason": "string (only if failure — one sentence, in-world reason the Elelem did not accept the response)"
 }`
 }

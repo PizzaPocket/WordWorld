@@ -311,7 +311,7 @@ export function useGameEngine() {
 
     try {
       const userPrompt = buildEncounterJudgmentPrompt(
-        playerInput, encounter.context, encounter.storyTheme, encounter.chapter, state.bookOfWords
+        playerInput, encounter.context, encounter.storyTheme, encounter.chapter, state.bookOfWords, state.player.name
       )
       const rawText = await generate(userPrompt)
       const result = parseEncounterJudgmentResponse(rawText)
